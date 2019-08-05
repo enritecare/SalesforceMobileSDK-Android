@@ -44,7 +44,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 import javax.crypto.KeyGenerator;
 
@@ -66,8 +65,6 @@ public class SalesforceKeyGenerator {
     private static final String SHA256 = "SHA-256";
     private static final String SHA1PRNG = "SHA1PRNG";
     private static final String AES = "AES";
-
-    private static Map<String, String> CACHED_ENCRYPTION_KEYS = new ConcurrentHashMap<>();
 
     /**
      * Returns the unique ID being used. The default key length is 256 bits.
@@ -97,12 +94,7 @@ public class SalesforceKeyGenerator {
      * @return Encryption key.
      */
     public static String getEncryptionKey(String name) {
-        String encryptionKey = CACHED_ENCRYPTION_KEYS.get(name);
-        if (encryptionKey == null) {
-            encryptionKey = generateEncryptionKey(name);
-            CACHED_ENCRYPTION_KEYS.put(name, encryptionKey);
-        }
-        return encryptionKey;
+        return generateEncryptionKey(name);
     }
 
     /**
@@ -182,7 +174,7 @@ public class SalesforceKeyGenerator {
         if (prefContents != null) {
             final Set<String> keys = prefContents.keySet();
             for (final String key : keys) {
-                if (key != null && key.startsWith(ID_PREFIX)) {
+                if (key != null && key.startsWith("id")) {
                     final String value = prefs.getString(key, null);
                     if (value != null) {
                         final PublicKey publicKey = KeyStoreWrapper.getInstance().getRSAPublicKey(KEYSTORE_ALIAS);
