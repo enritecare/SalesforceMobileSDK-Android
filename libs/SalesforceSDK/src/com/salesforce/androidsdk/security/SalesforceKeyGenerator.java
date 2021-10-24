@@ -94,17 +94,7 @@ public class SalesforceKeyGenerator {
      * @return Encryption key.
      */
     public static String getEncryptionKey(String name) {
-        if (TextUtils.isEmpty(name)) {
-            return null;
-        }
-        String encryptionKey = CACHED_ENCRYPTION_KEYS.get(name);
-        if (encryptionKey == null) {
-            encryptionKey = generateEncryptionKey(name);
-            if (encryptionKey != null) {
-                CACHED_ENCRYPTION_KEYS.put(name, encryptionKey);
-            }
-        }
-        return encryptionKey;
+        return generateEncryptionKey(name);
     }
 
     /**
@@ -179,6 +169,28 @@ public class SalesforceKeyGenerator {
         }
         return encryptionKey;
     }
+
+    public synchronized static void upgradeTo7Dot1() {
+        final SharedPreferences prefs = SalesforceSDKManager.getInstance().getAppContext().getSharedPreferences(SHARED_PREF_FILE, 0);
+        final Map<String, ?> prefContents = prefs.getAll();
+        if (prefContents != null) {
+            final Set<String> keys = prefContents.keySet();
+            for (final String key : keys) {
+                if (key != null && key.startsWith("id")) {
+                    final String value = prefs.getString(key, null);
+                    if (value != null) {
+                        final PublicKey publicKey = KeyStoreWrapper.getInstance().getRSAPublicKey(KEYSTORE_ALIAS);
+                        final String keyBase = key.replaceFirst(ID_PREFIX, "");
+                        final String mutatedValue = value + String.format(Locale.US, ADDENDUM, keyBase);
+                        final String encryptedValue = Encryptor.encryptWithRSA(publicKey, mutatedValue);
+                        storeInSharedPrefs(key, encryptedValue);
+                        prefs.edit().remove(key).commit();
+                    }
+                }
+            }
+        }
+    }
+
 
     private synchronized static String generateUniqueId(String name, int length) {
         final String id = readFromSharedPrefs(ID_PREFIX + name);
