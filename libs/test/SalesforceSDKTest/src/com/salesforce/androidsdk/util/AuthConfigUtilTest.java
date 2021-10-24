@@ -26,12 +26,19 @@
  */
 package com.salesforce.androidsdk.util;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.filters.SmallTest;
+import com.salesforce.androidsdk.app.SalesforceSDKManager;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java9.util.concurrent.CompletableFuture;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-import androidx.test.filters.SmallTest;
 
 /**
  * Tests for AuthConfigUtil.
@@ -46,6 +53,19 @@ public class AuthConfigUtilTest {
     private static final String ALTERNATE_MY_DOMAIN_ENDPOINT = "https://powerofus.force.com";
     private static final String SANDBOX_ENDPOINT = "https://test.salesforce.com";
     private static final String FORWARD_SLASH = "/";
+
+    private static class TestBroadcastReceiver extends BroadcastReceiver {
+        private final CompletableFuture<Intent> intentFuture = new CompletableFuture<>();
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            intentFuture.complete(intent);
+        }
+
+        Future<Intent> getIntent() {
+            return intentFuture;
+        }
+    }
 
     @Test
     public void testGetAuthConfigWithoutForwardSlash() {
@@ -75,16 +95,7 @@ public class AuthConfigUtilTest {
         Assert.assertNotNull("Auth config should not be null", authConfig);
         Assert.assertNotNull("Auth config JSON should not be null", authConfig.getAuthConfig());
         Assert.assertNotNull("SSO URLs should not be null", authConfig.getSsoUrls());
-        Assert.assertTrue("SSO URLs should have at least 1 valid entry",
-                authConfig.getSsoUrls().size() >= 1);
-    }
-
-    @Test
-    public void testGetNoSSOUrls() {
-        final AuthConfigUtil.MyDomainAuthConfig authConfig = AuthConfigUtil.getMyDomainAuthConfig(MY_DOMAIN_ENDPOINT);
-        Assert.assertNotNull("Auth config should not be null", authConfig);
-        Assert.assertNotNull("Auth config JSON should not be null", authConfig.getAuthConfig());
-        Assert.assertNull("SSO URLs should be null", authConfig.getSsoUrls());
+        Assert.assertEquals("SSO URLs should have 3 valid entries", 3, authConfig.getSsoUrls().size());
     }
 
     @Test
@@ -101,5 +112,36 @@ public class AuthConfigUtilTest {
     public void testGetNoAuthConfig() {
         final AuthConfigUtil.MyDomainAuthConfig authConfig = AuthConfigUtil.getMyDomainAuthConfig(SANDBOX_ENDPOINT);
         Assert.assertNull("Auth config should be null", authConfig);
+    }
+
+    @Test(timeout = 5_000)
+    public void testBroadcastSucceeds() throws ExecutionException, InterruptedException {
+        testBroadcast(MY_DOMAIN_ENDPOINT, true);
+    }
+
+    @Test(timeout = 5_000)
+    public void testBroadcastFails() throws ExecutionException, InterruptedException {
+        testBroadcast(SANDBOX_ENDPOINT, false);
+    }
+
+    private void testBroadcast(String endpoint, Boolean expected) throws InterruptedException, ExecutionException {
+        final TestBroadcastReceiver receiver = new TestBroadcastReceiver();
+        SalesforceSDKManager.getInstance().getAppContext().registerReceiver(receiver,
+                new IntentFilter(AuthConfigUtil.AUTH_CONFIG_COMPLETE_INTENT_ACTION));
+        try {
+            AuthConfigUtil.getMyDomainAuthConfig(endpoint);
+
+            final Intent intent = receiver.getIntent().get();
+            Assert.assertTrue("The intent extra should be set", intent.hasExtra(AuthConfigUtil.WAS_REQUEST_SUCCESSFUL_EXTRA));
+
+            final boolean extra = intent.getBooleanExtra(AuthConfigUtil.WAS_REQUEST_SUCCESSFUL_EXTRA, !expected);
+            if (expected) {
+                Assert.assertTrue("The auth config request should succeed", extra);
+            } else {
+                Assert.assertFalse("The auth config request should fail", extra);
+            }
+        } finally {
+            SalesforceSDKManager.getInstance().getAppContext().unregisterReceiver(receiver);
+        }
     }
 }

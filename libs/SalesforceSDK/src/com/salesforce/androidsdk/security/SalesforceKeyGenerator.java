@@ -42,7 +42,6 @@ import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import javax.crypto.KeyGenerator;
@@ -59,12 +58,13 @@ public class SalesforceKeyGenerator {
     private static final String SHARED_PREF_FILE = "identifier.xml";
     private static final String ENCRYPTED_ID_SHARED_PREF_KEY = "encrypted_%s";
     private static final String ID_PREFIX = "id_";
-    private static final String ADDENDUM = "addendum_%s";
     private static final String KEYSTORE_ALIAS = "com.salesforce.androidsdk.security.KEYPAIR";
     private static final String SHA1 = "SHA-1";
     private static final String SHA256 = "SHA-256";
     private static final String SHA1PRNG = "SHA1PRNG";
     private static final String AES = "AES";
+
+    private static final Map<String, String> CACHED_ENCRYPTION_KEYS = new ConcurrentHashMap<>();
 
     /**
      * Returns the unique ID being used. The default key length is 256 bits.
@@ -94,7 +94,43 @@ public class SalesforceKeyGenerator {
      * @return Encryption key.
      */
     public static String getEncryptionKey(String name) {
-        return generateEncryptionKey(name);
+        if (TextUtils.isEmpty(name)) {
+            return null;
+        }
+        String encryptionKey = CACHED_ENCRYPTION_KEYS.get(name);
+        if (encryptionKey == null) {
+            encryptionKey = generateEncryptionKey(name);
+            if (encryptionKey != null) {
+                CACHED_ENCRYPTION_KEYS.put(name, encryptionKey);
+            }
+        }
+        return encryptionKey;
+    }
+
+    /**
+     * Returns the legacy encryption key. This should be called only as a means to migrate to the new key.
+     *
+     * @param name Unique name associated with this legacy encryption key.
+     * @return Legacy encryption key.
+     * @deprecated Will be removed in Mobile SDK 10.0.
+     */
+    public static String getLegacyEncryptionKey(String name) {
+        if (TextUtils.isEmpty(name)) {
+            return null;
+        }
+        String encryptionKey = null;
+        try {
+            final String keyString = getUniqueId(name);
+            byte[] secretKey = keyString.getBytes(StandardCharsets.UTF_8);
+            final MessageDigest md = MessageDigest.getInstance(SHA1);
+            secretKey = md.digest(secretKey);
+            byte[] dest = new byte[16];
+            System.arraycopy(secretKey, 0, dest, 0, 16);
+            encryptionKey = Base64.encodeToString(dest, Base64.NO_WRAP);
+        } catch (Exception ex) {
+            SalesforceSDKLogger.e(TAG, "Exception thrown while getting legacy encryption key", ex);
+        }
+        return encryptionKey;
     }
 
     /**
@@ -128,76 +164,15 @@ public class SalesforceKeyGenerator {
         return hashedString;
     }
 
-    /**
-     * Generates an RSA keypair and returns the public key.
-     *
-     * @param name Alias of the entry in which the generated key will appear in Android KeyStore.
-     * @param length Key length.
-     * @return RSA public key.
-     * @deprecated Will be removed in Mobile SDK 8.0. Use {@link KeyStoreWrapper#getRSAPublicKey(String, int)} instead.
-     */
-    public static PublicKey getRSAPublicKey(String name, int length) {
-        return KeyStoreWrapper.getInstance().getRSAPublicKey(name, length);
-    }
-
-    /**
-     * Generates an RSA keypair and returns the encoded public key string.
-     *
-     * @param name Alias of the entry in which the generated key will appear in Android KeyStore.
-     * @param length Key length.
-     * @return RSA public key string.
-     * @deprecated Will be removed in Mobile SDK 8.0. Use {@link KeyStoreWrapper#getRSAPublicString(String, int)} instead.
-     */
-    public static String getRSAPublicString(String name, int length) {
-        return KeyStoreWrapper.getInstance().getRSAPublicString(name, length);
-    }
-
-    /**
-     * Generates an RSA keypair and returns the private key.
-     *
-     * @param name Alias of the entry in which the generated key will appear in Android KeyStore.
-     * @param length Key length.
-     * @return RSA private key.
-     * @deprecated Will be removed in Mobile SDK 8.0. Use {@link KeyStoreWrapper#getRSAPrivateKey(String, int)} instead.
-     */
-    public static PrivateKey getRSAPrivateKey(String name, int length) {
-        return KeyStoreWrapper.getInstance().getRSAPrivateKey(name, length);
-    }
-
-    /**
-     * Upgrades the keys stored in SharedPrefs to encrypted keys. This is a one-time
-     * migration step that's run while upgrading to Mobile SDK 7.1.
-     */
-    public synchronized static void upgradeTo7Dot1() {
-        final SharedPreferences prefs = SalesforceSDKManager.getInstance().getAppContext().getSharedPreferences(SHARED_PREF_FILE, 0);
-        final Map<String, ?> prefContents = prefs.getAll();
-        if (prefContents != null) {
-            final Set<String> keys = prefContents.keySet();
-            for (final String key : keys) {
-                if (key != null && key.startsWith("id")) {
-                    final String value = prefs.getString(key, null);
-                    if (value != null) {
-                        final PublicKey publicKey = KeyStoreWrapper.getInstance().getRSAPublicKey(KEYSTORE_ALIAS);
-                        final String keyBase = key.replaceFirst(ID_PREFIX, "");
-                        final String mutatedValue = value + String.format(Locale.US, ADDENDUM, keyBase);
-                        final String encryptedValue = Encryptor.encryptWithRSA(publicKey, mutatedValue);
-                        storeInSharedPrefs(key, encryptedValue);
-                        prefs.edit().remove(key).commit();
-                    }
-                }
-            }
-        }
-    }
-
     private synchronized static String generateEncryptionKey(String name) {
         String encryptionKey = null;
         try {
             final String keyString = getUniqueId(name);
             byte[] secretKey = keyString.getBytes(StandardCharsets.UTF_8);
-            final MessageDigest md = MessageDigest.getInstance(SHA1);
+            final MessageDigest md = MessageDigest.getInstance(SHA256);
             secretKey = md.digest(secretKey);
-            byte[] dest = new byte[16];
-            System.arraycopy(secretKey, 0, dest, 0, 16);
+            byte[] dest = new byte[32];
+            System.arraycopy(secretKey, 0, dest, 0, 32);
             encryptionKey = Base64.encodeToString(dest, Base64.NO_WRAP);
         } catch (Exception ex) {
             SalesforceSDKLogger.e(TAG, "Exception thrown while getting encryption key", ex);

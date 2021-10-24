@@ -26,9 +26,11 @@
  */
 package com.salesforce.androidsdk.rest;
 
-import androidx.test.platform.app.InstrumentationRegistry;
-import androidx.test.filters.LargeTest;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.filters.LargeTest;
+import androidx.test.platform.app.InstrumentationRegistry;
+
+import com.salesforce.androidsdk.analytics.security.Encryptor;
 import com.salesforce.androidsdk.app.SalesforceSDKManager;
 import com.salesforce.androidsdk.auth.HttpAccess;
 import com.salesforce.androidsdk.auth.OAuth2;
@@ -47,14 +49,11 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,6 +65,9 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+
+import okhttp3.Response;
+
 /**
  * Tests for RestClient
  *
@@ -119,7 +121,8 @@ public class RestClientTest {
         		TestCredentials.ACCOUNT_NAME, TestCredentials.USERNAME,
         		TestCredentials.USER_ID, TestCredentials.ORG_ID, null, null,
                 TEST_FIRST_NAME, TEST_LAST_NAME, TEST_DISPLAY_NAME, TEST_EMAIL, TestCredentials.PHOTO_URL,
-                TEST_THUMBNAIL_URL, testOauthValues);
+                TEST_THUMBNAIL_URL, testOauthValues, null, null, null,
+                null, null, null, null);
         restClient = new RestClient(clientInfo, authToken, httpAccess, null);
     }
 
@@ -173,7 +176,9 @@ public class RestClientTest {
         		new URI(TestCredentials.IDENTITY_URL),
         		TestCredentials.ACCOUNT_NAME, TestCredentials.USERNAME,
         		TestCredentials.USER_ID, TestCredentials.ORG_ID, null,
-        		TestCredentials.COMMUNITY_URL, null, null, null, null, null, null, testOauthValues);
+        		TestCredentials.COMMUNITY_URL, null, null, null,
+                null, null, null, testOauthValues, null,
+                null, null, null, null, null, null);
         Assert.assertEquals("Wrong url", TestCredentials.COMMUNITY_URL + "/a/b/", info.resolveUrl("a/b/").toString());
         Assert.assertEquals("Wrong url", TestCredentials.COMMUNITY_URL + "/a/b/", info.resolveUrl("/a/b/").toString());
     }
@@ -197,7 +202,9 @@ public class RestClientTest {
                 new URI(TestCredentials.IDENTITY_URL),
                 TestCredentials.ACCOUNT_NAME, TestCredentials.USERNAME,
                 TestCredentials.USER_ID, TestCredentials.ORG_ID, null,
-                TestCredentials.COMMUNITY_URL, null, null, null, null, null, null, testOauthValues);
+                TestCredentials.COMMUNITY_URL, null, null, null,
+                null, null, null, testOauthValues, null,
+                null, null, null, null, null, null);
         RestRequest r = new RestRequest(RestMethod.GET, RestRequest.RestEndpoint.LOGIN, "/a", (JSONObject) null, null);
         Assert.assertEquals("Community URL should take precedence over login or instance endpoint",
                 TestCredentials.COMMUNITY_URL + "/a", info.resolveUrl(r).toString());
@@ -210,7 +217,9 @@ public class RestClientTest {
         		new URI(TestCredentials.IDENTITY_URL),
         		TestCredentials.ACCOUNT_NAME, TestCredentials.USERNAME,
         		TestCredentials.USER_ID, TestCredentials.ORG_ID, null,
-        		TestCredentials.COMMUNITY_URL, null, null, null, null, null, null, testOauthValues);
+        		TestCredentials.COMMUNITY_URL, null, null, null,
+                null, null, null, testOauthValues, null,
+                null, null, null, null, null, null);
         Assert.assertEquals("Wrong url", TestCredentials.COMMUNITY_URL, info.getInstanceUrlAsString());
     }
 
@@ -314,6 +323,20 @@ public class RestClientTest {
         checkResponse(response, HttpURLConnection.HTTP_OK, false);
     }
 
+
+    /**
+     * Testing RestResponse:getRawResponse
+     */
+    @Test
+    public void testGetRawResponse() throws Exception {
+        RestClient unauthenticatedRestClient = new RestClient(clientInfo, BAD_TOKEN, httpAccess, null);
+        RestResponse response = unauthenticatedRestClient.sendSync(RestRequest.getRequestForVersions());
+        Response rawResponse = response.getRawResponse();
+        Assert.assertEquals(200, rawResponse.code());
+        Assert.assertEquals("application/json;charset=UTF-8", rawResponse.header("Content-Type"));
+        checkKeys(new JSONArray(rawResponse.body().string()).getJSONObject(0), "label", "url", "version");
+        rawResponse.close();
+    }
 
     /**
      * Testing a get versions call to the server - check response
@@ -629,6 +652,38 @@ public class RestClientTest {
     }
 
     /**
+     * Testing a query call to the server which specifies a batch size.
+     * Create new account then look for it using soql.
+     * @throws Exception
+     */
+    @Test
+    public void testQueryWithBatchSize() throws Exception {
+        cleanup();
+        List<IdName> idNames = createAccounts(201, "-testWithBatchSize-");
+        String soql = "select name from account where Name like '" + ENTITY_NAME_PREFIX + "-testWithBatchSize-%'";
+
+        // SOQL without batch size
+        RestRequest requestNoBatchSizeSpecified = RestRequest.getRequestForQuery(TestCredentials.API_VERSION, soql);
+        Assert.assertNull(requestNoBatchSizeSpecified.getAdditionalHttpHeaders());
+        RestResponse responseNoBatchSizeSpecified = restClient.sendSync(requestNoBatchSizeSpecified);
+        checkResponse(responseNoBatchSizeSpecified, HttpURLConnection.HTTP_OK, false);
+        JSONObject jsonResponseNoBatchSizeSpecified = responseNoBatchSizeSpecified.asJSONObject();
+        checkKeys(jsonResponseNoBatchSizeSpecified, "done", "totalSize", "records");
+        Assert.assertEquals("201 rows should match", 201, jsonResponseNoBatchSizeSpecified.getInt("totalSize"));
+        Assert.assertEquals("201 rows should have been returned", 201, jsonResponseNoBatchSizeSpecified.getJSONArray("records").length());
+
+        // SOQL with batch size
+        RestRequest requestWithBatchSizeSpecified = RestRequest.getRequestForQuery(TestCredentials.API_VERSION, soql, 200);
+        Assert.assertEquals("batchSize=200", requestWithBatchSizeSpecified.getAdditionalHttpHeaders().get(RestRequest.SFORCE_QUERY_OPTIONS));
+        RestResponse responseWithBatchSizeSpecified = restClient.sendSync(requestWithBatchSizeSpecified);
+        checkResponse(responseWithBatchSizeSpecified, HttpURLConnection.HTTP_OK, false);
+        JSONObject jsonResponseWithBatchSizeSpecified = responseWithBatchSizeSpecified.asJSONObject();
+        checkKeys(jsonResponseWithBatchSizeSpecified, "done", "totalSize", "records");
+        Assert.assertEquals("201 rows should match", 201, jsonResponseWithBatchSizeSpecified.getInt("totalSize"));
+        Assert.assertEquals("200 rows should have been returned", 200, jsonResponseWithBatchSizeSpecified.getJSONArray("records").length());
+    }
+
+    /**
      * Testing that calling resume more than once on a RestResponse doesn't throw an exception
      * @throws Exception 
      */
@@ -719,7 +774,7 @@ public class RestClientTest {
         final RestResponse response = getStreamTestResponse();
         try {
             InputStream in = response.asInputStream();
-            inputStreamToString(in);
+            Encryptor.getStringFromStream(in);
         } catch (IOException e) {
             Assert.fail("The InputStream should be readable and an IOException should not have been thrown");
         }
@@ -739,7 +794,7 @@ public class RestClientTest {
         final RestResponse response = getStreamTestResponse();
         try {
             final InputStream in = response.asInputStream();
-            inputStreamToString(in);
+            Encryptor.getStringFromStream(in);
         } catch (IOException e) {
             Assert.fail("The InputStream should be readable and an IOException should not have been thrown");
         }
@@ -983,6 +1038,37 @@ public class RestClientTest {
         Assert.assertEquals("Contact id not returned by query", otherContactId, otherQueryRecords.getJSONObject(0).getString("Id"));
     }
 
+    @Test
+    public void testGetNotificationsStatus() throws Exception {
+        RestRequest request = RestRequest.getRequestForNotificationsStatus(TestCredentials.API_VERSION);
+        RestResponse response = restClient.sendSync(request);
+        checkResponse(response, HttpURLConnection.HTTP_OK, false);
+        checkKeys(response.asJSONObject(), "lastActivity", "oldestUnread", "oldestUnseen", "unreadCount", "unseenCount");
+    }
+
+    @Test
+    public void testGetNotifications() throws Exception {
+        Date yesterday =  new Date(new Date().getTime() - 24*60*60*1000);
+        RestRequest request = RestRequest.getRequestForNotifications(TestCredentials.API_VERSION, 10, null, yesterday);
+        RestResponse response = restClient.sendSync(request);
+        checkResponse(response, HttpURLConnection.HTTP_OK, false);
+        checkKeys(response.asJSONObject(), "notifications");
+    }
+
+    @Test
+    public void testUpdateReadNotifications() throws Exception {
+        RestRequest request = RestRequest.getRequestForNotificationsUpdate(TestCredentials.API_VERSION, null, new Date(), true, null);
+        RestResponse response = restClient.sendSync(request);
+        checkResponse(response, HttpURLConnection.HTTP_OK, false);
+    }
+
+    @Test
+    public void testUpdateSeenNotifications() throws Exception {
+        RestRequest request = RestRequest.getRequestForNotificationsUpdate(TestCredentials.API_VERSION, null, new Date(), null, true);
+        RestResponse response = restClient.sendSync(request);
+        checkResponse(response, HttpURLConnection.HTTP_OK, false);
+    }
+
     //
     // Helper methods
     //
@@ -993,7 +1079,7 @@ public class RestClientTest {
      */
     private RestResponse getStreamTestResponse() throws IOException {
         final RestResponse response = restClient.sendSync(RestRequest.getRequestForResources(TestCredentials.API_VERSION));
-        Assert.assertEquals("Response code should be HTTP OK", response.getStatusCode(), HttpURLConnection.HTTP_OK);
+        Assert.assertEquals("Response code should be HTTP OK", HttpURLConnection.HTTP_OK, response.getStatusCode());
         return response;
     }
 
@@ -1004,20 +1090,10 @@ public class RestClientTest {
      * @throws JSONException if the response could not be decoded to a valid JSON object
      */
     private void assertStreamTestResponseStreamIsValid(InputStream in) throws IOException, JSONException {
-        final String responseData = inputStreamToString(in);
+        final String responseData = Encryptor.getStringFromStream(in);
         Assert.assertNotNull("The response should contain data", responseData);
         final JSONObject responseJson = new JSONObject(responseData);
         checkKeys(responseJson, "sobjects", "search", "recent");
-    }
-
-    private String inputStreamToString(InputStream inputStream) throws IOException {
-        StringBuilder builder = new StringBuilder();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
-        String line;
-        while ((line = reader.readLine()) != null) {
-            builder.append(line);
-        }
-        return builder.toString();
     }
 
     /**
@@ -1048,11 +1124,55 @@ public class RestClientTest {
      */
     private IdName createAccount() throws Exception {
         Map<String, Object> fields = new HashMap<>();
-        String newAccountName = ENTITY_NAME_PREFIX + "-" + System.nanoTime();
+        String newAccountName = ENTITY_NAME_PREFIX + System.nanoTime();
         fields.put(NAME, newAccountName);
         RestResponse response = restClient.sendSync(RestRequest.getRequestForCreate(TestCredentials.API_VERSION, ACCOUNT, fields));
         String newAccountId = response.asJSONObject().getString("id");
         return new IdName(newAccountId, newAccountName);
+    }
+
+    /**
+     * Helper method to create multiple accounts with a unique name and returns their name and id
+     */
+    private List<IdName> createAccounts(int count, String additionalPrefix) throws Exception {
+        Map<String, Object> fields = new HashMap<>();
+        List<String> ids = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+
+        // Creating names
+        for (int i = 0; i < count; i++) {
+            names.add(ENTITY_NAME_PREFIX + additionalPrefix + System.nanoTime());
+        }
+
+        // Creating accounts collecting ids
+        List<RestRequest> requests = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            fields.put(NAME, names.get(i));
+            requests.add(RestRequest.getRequestForCreate(TestCredentials.API_VERSION, ACCOUNT, fields));
+            if (requests.size() == 25) {
+                ids.addAll(getCreatedIds(requests));
+                requests.clear();
+            }
+        }
+        if (requests.size() > 0) {
+            ids.addAll(getCreatedIds(requests));
+        }
+
+        // Build IdName's
+        List<IdName> idNames = new ArrayList<>();
+        for (int i=0;i<ids.size(); i++) {
+            idNames.add(new IdName(ids.get(i), names.get(i)));
+        }
+        return idNames;
+    }
+
+    private List<String> getCreatedIds(List<RestRequest> createRequests) throws Exception {
+        List<String> ids = new ArrayList<>();
+        BatchResponse batchResponse = new BatchResponse(restClient.sendSync(RestRequest.getBatchRequest(TestCredentials.API_VERSION, false, createRequests)).asJSONObject());
+        for (JSONObject response : batchResponse.results) {
+            ids.add(response.getJSONObject("result").getString("id"));
+        }
+        return ids;
     }
 
     /**

@@ -26,6 +26,7 @@
  */
 package com.salesforce.androidsdk.ui;
 
+import android.app.ActionBar;
 import android.app.Activity;
 import android.app.FragmentManager;
 import android.content.Intent;
@@ -35,6 +36,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.RadioGroup;
+import android.widget.ScrollView;
 
 import com.salesforce.androidsdk.R;
 import com.salesforce.androidsdk.app.SalesforceSDKManager;
@@ -71,12 +73,12 @@ public class ServerPickerActivity extends Activity implements
     }
 
     /**
-     * Method called when the 'Cancel' button is clicked.
-     *
-     * @param v View that was clicked.
+     * Sets the return value of the activity. Selection is stored in the
+     * shared prefs file, AuthActivity pulls from the file or a default value.
      */
-    public void setCancelReturnValue(View v) {
-        onBackPressed();
+    @Override
+    public void onBackPressed() {
+        (new AuthConfigTask(this)).execute();
     }
 
     @Override
@@ -91,6 +93,12 @@ public class ServerPickerActivity extends Activity implements
     					url, isCustom));
     		}
     	}
+    }
+
+    @Override
+    public boolean onNavigateUp() {
+        onBackPressed();
+        return true;
     }
 
     /**
@@ -114,8 +122,16 @@ public class ServerPickerActivity extends Activity implements
     @Override
     public void onCreate(Bundle savedInstanceState) {
     	super.onCreate(savedInstanceState);
+        boolean isDarkTheme = SalesforceSDKManager.getInstance().isDarkTheme();
+        setTheme(isDarkTheme ? R.style.SalesforceSDK_Dark : R.style.SalesforceSDK);
+        // This makes the navigation bar visible on light themes.
+        SalesforceSDKManager.getInstance().setViewNavigationVisibility(this);
         loginServerManager = SalesforceSDKManager.getInstance().getLoginServerManager();
         setContentView(R.layout.sf__server_picker);
+
+        final ActionBar actionBar = getActionBar();
+        actionBar.setTitle(R.string.sf__server_picker_title);
+        actionBar.setDisplayHomeAsUpEnabled(true);
 
         /*
          * Hides the 'Add Connection' button if the MDM variable to disable
@@ -164,16 +180,6 @@ public class ServerPickerActivity extends Activity implements
     }
 
     /**
-     * Sets the return value of the activity. Selection is stored in the
-     * shared prefs file, AuthActivity pulls from the file or a default value.
-     *
-     * @param v View.
-     */
-    public void setPositiveReturnValue(View v) {
-        (new AuthConfigTask(this)).execute();
-    }
-
-    /**
      * Shows the custom URL dialog.
      *
      * @param v View.
@@ -205,7 +211,12 @@ public class ServerPickerActivity extends Activity implements
     private void setRadioState(RadioGroup radioGroup, LoginServer server) {
     	final SalesforceServerRadioButton rb = new SalesforceServerRadioButton(this,
     			server.name, server.url, server.isCustom);
+        boolean isDarkTheme = SalesforceSDKManager.getInstance().isDarkTheme();
+        int textColor = getResources().getColor(isDarkTheme ? R.color.sf__text_color_dark : R.color.sf__text_color);
+    	rb.setTextColor(textColor);
+    	rb.getButtonDrawable().setTint(getResources().getColor(R.color.sf__primary_color));
     	radioGroup.addView(rb);
+        ((ScrollView) radioGroup.getParent()).scrollTo(0, radioGroup.getBottom());
     }
 
     /**

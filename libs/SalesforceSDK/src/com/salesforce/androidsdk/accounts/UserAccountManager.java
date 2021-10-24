@@ -40,6 +40,7 @@ import com.salesforce.androidsdk.app.Features;
 import com.salesforce.androidsdk.app.SalesforceSDKManager;
 import com.salesforce.androidsdk.auth.AuthenticatorService;
 import com.salesforce.androidsdk.rest.ClientManager;
+import com.salesforce.androidsdk.util.SalesforceSDKLogger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -58,6 +59,7 @@ public class UserAccountManager {
 	private static final String CURRENT_USER_PREF = "current_user_info";
 	private static final String USER_ID_KEY = "user_id";
 	private static final String ORG_ID_KEY = "org_id";
+	private static final String TAG = "UserAccountManager";
 
 	public static final String USER_SWITCH_INTENT_ACTION = "com.salesforce.USERSWITCHED";
 
@@ -99,9 +101,9 @@ public class UserAccountManager {
 
 	private static UserAccountManager INSTANCE;
 
-	private Context context;
-	private AccountManager accountManager;
-	private String accountType;
+	private final Context context;
+	private final AccountManager accountManager;
+	private final String accountType;
 	private UserAccount cachedCurrentUserAccount;
 
 	/**
@@ -349,15 +351,6 @@ public class UserAccountManager {
         switchToNewUserWithOptions(options);
 	}
 
-	private void switchToNewUserWithOptions(Bundle options) {
-		final Bundle reply = new Bundle();
-		final Intent i = new Intent(context, SalesforceSDKManager.getInstance().getLoginActivityClass());
-		i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-		i.putExtras(options);
-		reply.putParcelable(AccountManager.KEY_INTENT, i);
-		context.startActivity(i);
-	}
-
 	/**
 	 * Logs the current user out.
 	 *
@@ -469,6 +462,41 @@ public class UserAccountManager {
         if (encCommunityUrl != null) {
         	communityUrl = SalesforceSDKManager.decrypt(encCommunityUrl, encryptionKey);
         }
+		final String encLightningDomain = accountManager.getUserData(account, AuthenticatorService.KEY_LIGHTNING_DOMAIN);
+		String lightningDomain = null;
+		if (encLightningDomain != null) {
+			lightningDomain = SalesforceSDKManager.decrypt(encLightningDomain, encryptionKey);
+		}
+		final String encLightningSid = accountManager.getUserData(account, AuthenticatorService.KEY_LIGHTNING_SID);
+		String lightningSid = null;
+		if (encLightningSid != null) {
+			lightningSid = SalesforceSDKManager.decrypt(encLightningSid, encryptionKey);
+		}
+		final String encVFDomain = accountManager.getUserData(account, AuthenticatorService.KEY_VF_DOMAIN);
+		String vfDomain = null;
+		if (encVFDomain != null) {
+			vfDomain = SalesforceSDKManager.decrypt(encVFDomain, encryptionKey);
+		}
+		final String encVFSid = accountManager.getUserData(account, AuthenticatorService.KEY_VF_SID);
+		String vfSid = null;
+		if (encVFSid != null) {
+			vfSid = SalesforceSDKManager.decrypt(encVFSid, encryptionKey);
+		}
+		final String encContentDomain = accountManager.getUserData(account, AuthenticatorService.KEY_CONTENT_DOMAIN);
+		String contentDomain = null;
+		if (encContentDomain != null) {
+			contentDomain = SalesforceSDKManager.decrypt(encContentDomain, encryptionKey);
+		}
+		final String encContentSid = accountManager.getUserData(account, AuthenticatorService.KEY_CONTENT_SID);
+		String contentSid = null;
+		if (encContentSid != null) {
+			contentSid = SalesforceSDKManager.decrypt(encContentSid, encryptionKey);
+		}
+		final String encCsrfToken = accountManager.getUserData(account, AuthenticatorService.KEY_CSRF_TOKEN);
+		String csrfToken = null;
+		if (encCsrfToken != null) {
+			csrfToken = SalesforceSDKManager.decrypt(encCsrfToken, encryptionKey);
+		}
 		if (authToken == null || instanceServer == null || userId == null || orgId == null) {
 			return null;
 		}
@@ -476,8 +504,10 @@ public class UserAccountManager {
                 loginServer(loginServer).idUrl(idUrl).instanceServer(instanceServer).orgId(orgId).
                 userId(userId).username(username).accountName(accountName).communityId(communityId).
                 communityUrl(communityUrl).firstName(firstName).lastName(lastName).displayName(displayName).
-                email(email).photoUrl(photoUrl).thumbnailUrl(thumbnailUrl).
-                additionalOauthValues(additionalOauthValues).build();
+                email(email).photoUrl(photoUrl).thumbnailUrl(thumbnailUrl).lightningDomain(lightningDomain).
+				lightningSid(lightningSid).vfDomain(vfDomain).vfSid(vfSid).contentDomain(contentDomain).
+				contentSid(contentSid).csrfToken(csrfToken).additionalOauthValues(additionalOauthValues).
+				build();
 	}
 
 	/**
@@ -554,4 +584,36 @@ public class UserAccountManager {
         }
         return null;
     }
+
+	/**
+	 * Attempts to refresh the access token for this user by making an API call
+	 * to the "/token" endpoint. If the call succeeds, the new token is persisted.
+	 * If the call fails and the refresh token is no longer valid, the user is logged out.
+	 * This should NOT be called from the main thread because it makes a network request.
+	 *
+	 * @param userAccount User account whose token should be refreshed. Use 'null' for current user.
+	 */
+	public synchronized void refreshToken(UserAccount userAccount) {
+		userAccount = (userAccount == null) ? getCurrentUser() : userAccount;
+		if (userAccount == null) {
+			return;
+		}
+		try {
+			final ClientManager clientManager = SalesforceSDKManager.getInstance().getClientManager();
+			final ClientManager.AccMgrAuthTokenProvider authTokenProvider = new ClientManager.AccMgrAuthTokenProvider(clientManager,
+					userAccount.getInstanceServer(), userAccount.getAuthToken(), userAccount.getRefreshToken());
+			authTokenProvider.getNewAuthToken();
+		} catch (Exception e) {
+			SalesforceSDKLogger.e(TAG, "Exception thrown while attempting to refresh token", e);
+		}
+	}
+
+	private void switchToNewUserWithOptions(Bundle options) {
+		final Bundle reply = new Bundle();
+		final Intent i = new Intent(context, SalesforceSDKManager.getInstance().getLoginActivityClass());
+		i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+		i.putExtras(options);
+		reply.putParcelable(AccountManager.KEY_INTENT, i);
+		context.startActivity(i);
+	}
 }
