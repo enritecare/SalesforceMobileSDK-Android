@@ -115,7 +115,7 @@ public class SalesforceSDKManager implements LifecycleObserver {
     /**
      * Current version of this SDK.
      */
-    public static final String SDK_VERSION = "9.2.0";
+    public static final String SDK_VERSION = "8.1.0.dev";
 
     /**
      * Intent action meant for instances of SalesforceSDKManager residing in other processes
