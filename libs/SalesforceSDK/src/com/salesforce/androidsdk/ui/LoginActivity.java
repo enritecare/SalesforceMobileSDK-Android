@@ -28,7 +28,6 @@ package com.salesforce.androidsdk.ui;
 
 import android.accounts.AccountAuthenticatorActivity;
 import android.app.ActionBar;
-import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -62,7 +61,6 @@ import com.salesforce.androidsdk.auth.idp.SPRequestHandler;
 import com.salesforce.androidsdk.config.RuntimeConfig;
 import com.salesforce.androidsdk.config.RuntimeConfig.ConfigKey;
 import com.salesforce.androidsdk.rest.ClientManager.LoginOptions;
-import com.salesforce.androidsdk.security.PasscodeManager;
 import com.salesforce.androidsdk.ui.OAuthWebviewHelper.OAuthWebviewHelperEvents;
 import com.salesforce.androidsdk.util.AuthConfigTask;
 import com.salesforce.androidsdk.util.EventsObservable;
@@ -100,6 +98,9 @@ public class LoginActivity extends AccountAuthenticatorActivity
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		boolean isDarkTheme = SalesforceSDKManager.getInstance().isDarkTheme();
+        setTheme(isDarkTheme ? R.style.SalesforceSDK_Dark_Login : R.style.SalesforceSDK);
+        SalesforceSDKManager.getInstance().setViewNavigationVisibility(this);
 
         // Getting login options from intent's extras.
         final LoginOptions loginOptions = LoginOptions.fromBundle(getIntent().getExtras());
@@ -167,7 +168,9 @@ public class LoginActivity extends AccountAuthenticatorActivity
         }
 
         // Reloads login page for every new intent to ensure the correct login server is selected.
-        webviewHelper.loadLoginPage();
+        if (webviewHelper.shouldReloadPage()) {
+            webviewHelper.loadLoginPage();
+        }
 
         // Launches IDP login flow directly for IDP initiated login flow.
         if (intent != null) {
@@ -200,10 +203,7 @@ public class LoginActivity extends AccountAuthenticatorActivity
             return false;
         }
         final Uri uri = intent.getData();
-        if (uri == null) {
-            return false;
-        }
-        return true;
+        return (uri != null);
     }
 
     private void completeAuthFlow(Intent intent) {
@@ -237,8 +237,10 @@ public class LoginActivity extends AccountAuthenticatorActivity
 	protected void onResume() {
 		super.onResume();
 		if (wasBackgrounded) {
-			webviewHelper.clearView();
-			webviewHelper.loadLoginPage();
+		    if (webviewHelper.shouldReloadPage()) {
+                webviewHelper.clearView();
+                webviewHelper.loadLoginPage();
+            }
 			wasBackgrounded = false;
 		}
 	}
@@ -275,15 +277,13 @@ public class LoginActivity extends AccountAuthenticatorActivity
 		     * the back button should take the user back to the previous screen.
 		     */
 			final UserAccountManager accMgr = SalesforceSDKManager.getInstance().getUserAccountManager();
+			wasBackgrounded = true;
 			if (accMgr.getAuthenticatedUsers() == null) {
-				wasBackgrounded = true;
 				moveTaskToBack(true);
-				return true;
 			} else {
-				wasBackgrounded = true;
 				finish();
-				return true;
 			}
+			return true;
 		}
 		return false;
 	}

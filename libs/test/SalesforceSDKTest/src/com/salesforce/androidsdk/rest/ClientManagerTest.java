@@ -28,12 +28,14 @@ package com.salesforce.androidsdk.rest;
 
 import android.accounts.Account;
 import android.accounts.AccountManager;
-import android.accounts.AccountManagerCallback;
-import android.accounts.AccountManagerFuture;
 import android.app.Application;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.os.Bundle;
+
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import com.salesforce.androidsdk.TestForceApp;
 import com.salesforce.androidsdk.app.SalesforceSDKManager;
@@ -62,10 +64,6 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
-
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-import androidx.test.filters.MediumTest;
-import androidx.test.platform.app.InstrumentationRegistry;
 
 @RunWith(AndroidJUnit4.class)
 @MediumTest
@@ -97,24 +95,22 @@ public class ClientManagerTest {
     public static final String TEST_CUSTOM_KEY = "test_custom_key";
     public static final String TEST_CUSTOM_VALUE = "test_custom_value";
 
-    private Context targetContext;
     private ClientManager clientManager;
     private AccountManager accountManager;
-    private LoginOptions loginOptions;
     private EventsListenerQueue eq;
     private List<String> testOauthKeys;
     private Map<String, String> testOauthValues;
 
     @Before
     public void setUp() throws Exception {
-        targetContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        final Context targetContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
         final Application app = Instrumentation.newApplication(TestForceApp.class, targetContext);
         InstrumentationRegistry.getInstrumentation().callApplicationOnCreate(app);
         TestCredentials.init(InstrumentationRegistry.getInstrumentation().getContext());
-        loginOptions = new LoginOptions(TEST_LOGIN_URL, TEST_CALLBACK_URL,
+        final LoginOptions loginOptions = new LoginOptions(TEST_LOGIN_URL, TEST_CALLBACK_URL,
                 TEST_CLIENT_ID, TEST_SCOPES);
         clientManager = new ClientManager(targetContext, TEST_ACCOUNT_TYPE,
-        		loginOptions, true);
+                loginOptions, true);
         accountManager = clientManager.getAccountManager();
         eq = new EventsListenerQueue();
         if (!SalesforceSDKManager.hasInstance()) {
@@ -462,10 +458,10 @@ public class ClientManagerTest {
     }
 
     /**
-     * Test removeAccountAsync
+     * Test removeAccount
      */
     @Test
-    public void testRemoveAccountAsync() throws Exception {
+    public void testRemoveAccount() throws Exception {
 
         // Make sure we have no accounts initially
         assertNoAccounts();
@@ -477,28 +473,11 @@ public class ClientManagerTest {
         Account[] accounts = clientManager.getAccounts();
         Assert.assertEquals("Two accounts should have been returned", 1, accounts.length);
 
-        // Call removeAccountAsync
-        final BlockingQueue<AccountManagerFuture<Boolean>> q = new ArrayBlockingQueue<AccountManagerFuture<Boolean>>(1);
-        clientManager.removeAccountAsync(clientManager.getAccount(), new AccountManagerCallback<Boolean>() {
+        // Call removeAccount
+        clientManager.removeAccount(clientManager.getAccount());
 
-            @Override
-            public void run(AccountManagerFuture<Boolean> future) {
-                q.add(future);
-            }
-        });
-
-        // Wait for removeAccountAsync to complete
-        try {
-            AccountManagerFuture<Boolean> f = q.poll(10L, TimeUnit.SECONDS);
-            Assert.assertNotNull("AccountManagerFuture expected", f);
-            Assert.assertTrue("Removal should have returned true", f.getResult());
-
-            // Make sure there are no accounts left
-            assertNoAccounts();
-
-        } catch (InterruptedException e) {
-            Assert.fail("removeAccountAsync did not return after 5s");
-        }
+        // Make sure there are no accounts left
+        assertNoAccounts();
     }
 
     /**
@@ -523,7 +502,9 @@ public class ClientManagerTest {
         return clientManager.createNewAccount(TEST_ACCOUNT_NAME, TEST_USERNAME, TEST_REFRESH_TOKEN,
                 TEST_AUTH_TOKEN, TEST_INSTANCE_URL, TEST_LOGIN_URL, TEST_IDENTITY_URL, TEST_CLIENT_ID,
                 TEST_ORG_ID, TEST_USER_ID, null, null, TEST_FIRST_NAME, TEST_LAST_NAME,
-                TEST_DISPLAY_NAME, TEST_EMAIL, TEST_PHOTO_URL, TEST_THUMBNAIL_URL, testOauthValues);
+                TEST_DISPLAY_NAME, TEST_EMAIL, TEST_PHOTO_URL, TEST_THUMBNAIL_URL, testOauthValues,
+                null, null, null, null, null,
+                null, null);
     }
 
     /**
@@ -534,7 +515,9 @@ public class ClientManagerTest {
         return clientManager.createNewAccount(TEST_OTHER_ACCOUNT_NAME, TEST_OTHER_USERNAME,
                 TEST_REFRESH_TOKEN, TEST_AUTH_TOKEN, TEST_INSTANCE_URL, TEST_LOGIN_URL,
                 TEST_IDENTITY_URL, TEST_CLIENT_ID, TEST_ORG_ID_2, TEST_USER_ID_2,
-                null, null, TEST_FIRST_NAME, TEST_LAST_NAME, TEST_DISPLAY_NAME, TEST_EMAIL, TEST_PHOTO_URL,
-                TEST_THUMBNAIL_URL, testOauthValues);
+                null, null, TEST_FIRST_NAME, TEST_LAST_NAME, TEST_DISPLAY_NAME,
+                TEST_EMAIL, TEST_PHOTO_URL, TEST_THUMBNAIL_URL, testOauthValues,
+                null, null, null, null, null,
+                null, null);
     }
 }

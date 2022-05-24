@@ -43,7 +43,20 @@ import com.salesforce.androidsdk.smartstore.store.SmartStore.SmartStoreException
  */
 public class SmartSqlHelper  {
 
+	private static final String NO_STRINGS_OR_FULL_STRINGS_REGEXP = "^([^']|'[^']*')*";
+	//  ^           # the start of the string, then
+	//  ([^']       # either not a quote character
+	//  |'[^']*'    # or a fully quoted string
+	//  )*          # as many times as you want
+
+	private static final String INSIDE_QUOTED_STRING_REGEXP = NO_STRINGS_OR_FULL_STRINGS_REGEXP + "'[^']*";
+
+	private static final String INSIDE_QUOTED_STRING_FOR_FTS_MATCH_PREDICATE_REGEXP = NO_STRINGS_OR_FULL_STRINGS_REGEXP + "MATCH[ ]+'[^']*";
+
 	public static final Pattern SOUP_PATH_PATTERN = Pattern.compile("\\{([^}]+)\\}");
+
+	public static final String TABLE_DOT_JSON_EXTRACT_REGEXP = "(\\w+)\\.json_extract\\(soup";
+
 	private static Map<SQLiteDatabase, SmartSqlHelper> INSTANCES;
 
 	/**
@@ -93,6 +106,14 @@ public class SmartSqlHelper  {
 			String fullMatch = matcher.group();
 			String match = matcher.group(1);
 			int position = matcher.start();
+
+			String beforeStr = smartSql.substring(0, position);
+			if (beforeStr.matches(INSIDE_QUOTED_STRING_REGEXP)
+				&& !beforeStr.matches(INSIDE_QUOTED_STRING_FOR_FTS_MATCH_PREDICATE_REGEXP))
+			{
+				continue;
+			}
+
 			String[] parts = match.split(":");
 			String soupName = parts[0];
 			String soupTableName = getSoupTableNameForSmartSql(db, soupName, position);
@@ -130,7 +151,7 @@ public class SmartSqlHelper  {
 				}
 				// {soupName:path}
 				else {
-					String columnName = getColumnNameForPathForSmartSql(db, soupName, path, position);
+					String columnName = getColumnNameForPathForSmartSql(db, soupName, path, position, !useExternalStorage);
 					matcher.appendReplacement(sql, columnName.replace("$", "\\$") /* treat any $ as litteral */);
 				}
 			} else if (parts.length > 2) {
@@ -145,19 +166,27 @@ public class SmartSqlHelper  {
 		// With json1 support, the column name could be an expression of the form json_extract(soup, '$.x.y.z')
 		// We can't have TABLE_x.json_extract(soup, ...) or table_alias.json_extract(soup, ...) in the sql query
         // Instead we should have json_extract(TABLE_x.soup, ...)
-		sqlStr = sqlStr.replaceAll("([^ ]+)\\.json_extract\\(soup", "json_extract($1.soup");
+		sqlStr = sqlStr.replaceAll(TABLE_DOT_JSON_EXTRACT_REGEXP, "json_extract($1.soup");
 
 		// Done
 		return sqlStr;
 	}
 	
-	private String getColumnNameForPathForSmartSql(SQLiteDatabase db, String soupName, String path, int position) {
+	private String getColumnNameForPathForSmartSql(SQLiteDatabase db, String soupName, String path, int position, boolean storedInDb) {
 		String columnName = null;
-		try {
-			columnName = DBHelper.getInstance(db).getColumnNameForPath(db, soupName, path);
-		} catch (SmartStoreException e) {
-			reportSmartSqlError(e.getMessage(), position);
+		boolean indexed = DBHelper.getInstance(db).hasIndexForPath(db, soupName, path);
+
+		if (!indexed && storedInDb) {
+			// Thanks to the json1 extension we can query the data even if it is not indexed (as long as the data is stored in the database)
+			columnName = "json_extract(" + SmartStore.SOUP_COL + ", '$." + path + "')";
+		} else {
+			try {
+				columnName = DBHelper.getInstance(db).getColumnNameForPath(db, soupName, path);
+			} catch (SmartStoreException e) {
+				reportSmartSqlError(e.getMessage(), position);
+			}
 		}
+
 		return columnName;
 	}
 

@@ -2,8 +2,8 @@
 
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
 	package="com.salesforce.androidsdk" 
-	android:versionCode="65"
-	android:versionName="7.2.0">
+	android:versionCode="68"
+	android:versionName="8.1.0.dev">
 
     <application>
 
@@ -28,44 +28,49 @@
             required for the Chrome custom tab auth flow to work correctly.
         -->
         <activity android:name="com.salesforce.androidsdk.ui.LoginActivity"
-            android:theme="@style/SalesforceSDK.ActionBarTheme"
+            android:theme="@style/SalesforceSDK"
             android:launchMode="singleInstance"
-            android:screenOrientation="portrait" />
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true" />
 
-        <!-- Passcode activity -->
-        <activity android:name="com.salesforce.androidsdk.ui.PasscodeActivity"
-            android:theme="@style/Theme.Design.NoActionBar"
+        <!-- Screen Lock Activity-->
+        <activity android:name="com.salesforce.androidsdk.ui.ScreenLockActivity"
             android:exported="false"
             android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize|stateAlwaysVisible" />
+            android:windowSoftInputMode="adjustResize|stateAlwaysVisible"
+            android:theme="@style/SalesforceSDK.ScreenLock" />
 
         <!-- Manage space activity -->
         <activity android:name="com.salesforce.androidsdk.ui.ManageSpaceActivity"
             android:excludeFromRecents="true"
-            android:theme="@style/SalesforceSDK.ActionBarTheme" />
+            android:theme="@style/SalesforceSDK"
+            android:exported="false" />
 
         <!-- Choose server activity -->
         <activity android:name="com.salesforce.androidsdk.ui.ServerPickerActivity"
             android:excludeFromRecents="true"
-            android:theme="@style/SalesforceSDK.ActionBarTheme"
-            android:screenOrientation="portrait" />
+            android:theme="@style/SalesforceSDK"
+            android:screenOrientation="portrait"
+            android:exported="false" />
 
         <!-- Account switcher activity -->
         <activity android:name="com.salesforce.androidsdk.ui.AccountSwitcherActivity"
             android:excludeFromRecents="true"
-            android:theme="@style/SalesforceSDK.ActionBarTheme"
-            android:screenOrientation="portrait" />
+            android:theme="@style/SalesforceSDK"
+            android:screenOrientation="portrait"
+            android:exported="false" />
 
         <!-- IDP webview activity -->
         <activity android:name="com.salesforce.androidsdk.auth.idp.IDPCodeGeneratorActivity"
             android:excludeFromRecents="true"
-            android:theme="@style/SalesforceSDK.ActionBarTheme"
+            android:theme="@style/SalesforceSDK"
             android:exported="false"
             android:screenOrientation="portrait" />
 
         <!--  Dev info activity -->
         <activity android:name="com.salesforce.androidsdk.ui.DevInfoActivity"
-            android:theme="@style/SalesforceSDK.ActionBarTheme"
+            android:theme="@style/SalesforceSDK"
             android:exported="false" />
 
         <!-- Receiver for IDP initiated login flow -->
@@ -77,7 +82,8 @@
             </intent-filter>
         </receiver>
 
-        <service android:name="com.salesforce.androidsdk.push.SFDCFcmListenerService">
+        <service android:name="com.salesforce.androidsdk.push.SFDCFcmListenerService"
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
@@ -102,9 +108,7 @@
 
     <uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS" />
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
-    <uses-permission android:name="android.permission.MANAGE_ACCOUNTS" />
     <uses-permission android:name="android.permission.USE_CREDENTIALS" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
 
     <!-- USE_FINGERPRINT is available from API 23 to API 27 and should be removed once minAPI > 27 -->

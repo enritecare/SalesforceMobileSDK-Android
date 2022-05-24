@@ -30,6 +30,8 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.text.TextUtils;
 
+import androidx.annotation.NonNull;
+
 import com.salesforce.androidsdk.analytics.EventBuilderHelper;
 import com.salesforce.androidsdk.app.SalesforceSDKManager;
 import com.salesforce.androidsdk.smartstore.store.LongOperation.LongOperationType;
@@ -51,8 +53,6 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import androidx.annotation.NonNull;
-
 /**
  * Smart store
  *
@@ -63,16 +63,7 @@ import androidx.annotation.NonNull;
  */
 public class SmartStore  {
 
-    // Default
-    public static final int DEFAULT_PAGE_SIZE = 10;
 	private static final String TAG = "SmartStore";
-
-	/**
-	 * Table to keep track of soup names.
-	 *
-	 * @deprecated This has been deprecated as table has been renamed to {@link #SOUP_ATTRS_TABLE}
-	 */
-    protected static final String SOUP_NAMES_TABLE = "soup_names";
 
 	// Table to keep track of soup names and attributes.
 	public static final String SOUP_ATTRS_TABLE = "soup_attrs";
@@ -136,8 +127,8 @@ public class SmartStore  {
      */
     public static synchronized void changeKey(SQLiteDatabase db, String oldKey, String newKey) {
     	synchronized(db) {
-	        if (newKey != null && !newKey.trim().equals("")) {
-	            db.execSQL("PRAGMA rekey = '" + newKey + "'");
+	        if (!TextUtils.isEmpty(newKey)) {
+	            DBOpenHelper.changeKey(db, oldKey, newKey);
 	            DBOpenHelper.reEncryptAllFiles(db, oldKey, newKey);
 	        }
     	}
@@ -206,14 +197,6 @@ public class SmartStore  {
     }
 
     /**
-     * @param db
-     */
-    @Deprecated
-    public SmartStore(SQLiteDatabase db) {
-        this.dbLocal = db;
-    }
-
-    /**
      * Relies on SQLiteOpenHelper for database handling.
      *
      * @param dbOpenHelper DB open helper.
@@ -223,6 +206,15 @@ public class SmartStore  {
     	this.dbOpenHelper = dbOpenHelper;
         this.encryptionKey = encryptionKey;
     }
+
+	/**
+	 * Package-level constructor. Should be used in tests only.
+	 *
+	 * @param db Database.
+	 */
+	SmartStore(SQLiteDatabase db) {
+		this.dbLocal = db;
+	}
 
     /**
      * Return db
@@ -668,6 +660,20 @@ public class SmartStore  {
 	        if (soupTableName == null) throw new SmartStoreException("Soup: " + soupName + " does not exist");
 	        return DBHelper.getInstance(db).getIndexSpecs(db, soupName);
     	}
+	}
+
+	/**
+	 * Return true if the given path is indexed on the given soup
+	 *
+	 * @param soupName
+	 * @param path
+	 * @return
+	 */
+	public boolean hasIndexForPath(String soupName, String path) {
+		final SQLiteDatabase db = getDatabase();
+		synchronized(db) {
+			return DBHelper.getInstance(db).hasIndexForPath(db, soupName, path);
+		}
 	}
 
 	/**
@@ -1420,10 +1426,10 @@ public class SmartStore  {
 	            db.beginTransaction();
 	        }
 	        try {
-	            db.delete(soupTableName, getSoupEntryIdsPredicate(soupEntryIds), (String []) null);
+				DBHelper.getInstance(db).delete(db, soupTableName, getSoupEntryIdsPredicate(soupEntryIds));
 
 				if (hasFTS(soupName)) {
-					db.delete(soupTableName + FTS_SUFFIX, getRowIdsPredicate(soupEntryIds), (String[]) null);
+					DBHelper.getInstance(db).delete(db, soupTableName + FTS_SUFFIX, getRowIdsPredicate(soupEntryIds));
 				}
 
 				if (usesExternalStorage(soupName) && dbOpenHelper instanceof DBOpenHelper) {
@@ -1491,10 +1497,10 @@ public class SmartStore  {
 					}
                 }
 
-                db.delete(soupTableName, buildInStatement(ID_COL, subQuerySql), args);
+				DBHelper.getInstance(db).delete(db, soupTableName, buildInStatement(ID_COL, subQuerySql), args);
 
 				if (hasFTS(soupName)) {
-                    db.delete(soupTableName + FTS_SUFFIX, buildInStatement(ROWID_COL, subQuerySql), args);
+					DBHelper.getInstance(db).delete(db, soupTableName + FTS_SUFFIX, buildInStatement(ROWID_COL, subQuerySql), args);
 				}
 
 				if (handleTx) {
@@ -1580,7 +1586,18 @@ public class SmartStore  {
 	 * projectIntoJson(json, "a.b.d.e") = [[1, 2], [3, 4]]                               // new in 4.1
 	 *
      */
-    public static Object project(JSONObject soup, String path) {
+	public static Object project(JSONObject soup, String path) {
+		Object result = projectReturningNULLObject(soup, path);
+		return result == JSONObject.NULL ? null : result;
+	}
+
+	/**
+	 * Same as project but returns JSONObject.NULL if node found but without value and null if node not found
+	 * @param soup
+	 * @param path
+	 * @return
+	 */
+    public static Object projectReturningNULLObject(JSONObject soup, String path) {
         if (soup == null) {
             return null;
         }
@@ -1588,10 +1605,10 @@ public class SmartStore  {
             return soup;
         }
         String[] pathElements = path.split("[.]");
-		return project(soup, pathElements, 0);
+		return projectRecursive(soup, pathElements, 0);
     }
 
-	private static Object project(Object jsonObj, String[] pathElements, int index) {
+	private static Object projectRecursive(Object jsonObj, String[] pathElements, int index) {
 		Object result = null;
 		if (index == pathElements.length) {
 			return jsonObj;
@@ -1602,15 +1619,15 @@ public class SmartStore  {
 
 			if (jsonObj instanceof JSONObject) {
 				JSONObject jsonDict = (JSONObject) jsonObj;
-				Object dictVal = JSONObjectHelper.opt(jsonDict, pathElement);
-				result = project(dictVal, pathElements, index+1);
+				Object dictVal = jsonDict.opt(pathElement);
+				result = projectRecursive(dictVal, pathElements, index+1);
 			}
 			else if (jsonObj instanceof JSONArray) {
 				JSONArray jsonArr = (JSONArray) jsonObj;
 				result = new JSONArray();
 				for (int i=0; i<jsonArr.length(); i++) {
-					Object arrayElt = JSONObjectHelper.opt(jsonArr, i);
-					Object resultPart = project(arrayElt, pathElements, index);
+					Object arrayElt = jsonArr.opt(i);
+					Object resultPart = projectRecursive(arrayElt, pathElements, index);
 					if (resultPart != null) {
 						((JSONArray) result).put(resultPart);
 					}
